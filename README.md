@@ -1,4 +1,11 @@
-# Setup
+# Setup with Compose - not a swarm stack
+Can't do this as a stack yet because you need a privileged container
+```shell
+docker-compose -f alternative-compose.yml up -d
+```
+Goto: Usage
+
+# Setup with systemd
 ```shell
 cp docker-event-listener.sh /usr/local/bin
 chmod 0744 /usr/local/bin docker-event-listener.sh
