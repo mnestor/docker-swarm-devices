@@ -1,0 +1,41 @@
+version: "3.2"
+
+services:
+  volumes:
+    container_name: device_volumes
+    image: docker
+    command: 
+      - /bin/ash
+      - -c
+      - |
+        # touch /var/log/test
+        # tail -f /var/log/test
+        function add_perm() {
+          read DEVICE CID
+          DEVICE=`echo $$DEVICE | sed -n -e 's/\/dev\//\/devices\//p'`
+
+          USBDEV=`readlink -f $${DEVICE}`
+          echo "Usb translated is $${USBDEV}"
+          #read minor major 
+          
+          major=`stat -c '%t' $$USBDEV`
+          minor=`stat -c '%T' $$USBDEV`
+          if [[ -z $$minor || -z $$major ]]; then
+            echo 'Device not found'
+            exit
+          fi
+
+          dminor=$$((0x$${minor}))
+          dmajor=$$((0x$${major}))
+          echo "Setting permissions for $${CID} to device ($${DEVICE})"
+          echo "c $$dmajor:$$dminor rwm"
+          echo "c $$dmajor:$$dminor rwm" > /docker/$${CID}/devices.allow
+        }
+
+        docker events  --filter 'label=volume.device' --filter 'event=start' --format '{{index .Actor.Attributes "volume.device"}} {{.Actor.ID}}' | \
+          add_perm
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "/sys/fs/cgroup/devices/docker/:/docker/:Z"
+      - "/dev:/devices:ro"
+    privileged: true
