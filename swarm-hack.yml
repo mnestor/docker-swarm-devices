@@ -1,0 +1,61 @@
+version: "3.2"
+
+services:
+  volumes:
+    image: docker
+    tty: true
+    environment:
+      - NODE_NAME={{.Node.Hostname}}
+    command: 
+      - docker
+      - run
+      - --rm
+      - --privileged
+      - --init
+      - --name
+      - devices_volume_priv
+      - -e
+      - NODE_NAME
+      - -v 
+      - /var/run/docker.sock:/var/run/docker.sock
+      - -v 
+      - /sys/fs/cgroup/devices/docker/:/docker/:Z
+      - docker
+      - /bin/ash
+      - -c
+      - |
+        # touch /var/log/test
+        # tail -f /var/log/test
+        function log() {
+          echo "$${NODE_NAME}: $${1}"
+        }
+        log "Listening for containers that start with a volume.device label"
+        function add_perm() {
+          read DEVICE CID
+          
+          USBDEV=`readlink -f $${DEVICE}`
+          major=`stat -c '%t' $$USBDEV`
+          minor=`stat -c '%T' $$USBDEV`
+          if [[ -z $$minor || -z $$major ]]; then
+            log 'Device not found'
+            exit
+          fi
+
+          dminor=$$((0x$${minor}))
+          dmajor=$$((0x$${major}))
+          log "Setting permissions (c $$dmajor:$$dminor rwm) for $${CID} to device ($${DEVICE})"
+          echo "c $$dmajor:$$dminor rwm" > /docker/$${CID}/devices.allow
+        }
+
+        docker events \
+          --filter 'label=volume.device' \
+          --filter 'event=start' \
+          --format '{{index .Actor.Attributes "volume.device"}} {{.Actor.ID}}' | \
+          add_perm
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    deploy:
+      mode: global
+      placement:
+        constraints:
+          - node.labels.volume.device == true
