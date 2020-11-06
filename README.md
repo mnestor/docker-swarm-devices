@@ -1,20 +1,13 @@
+# Wtf?
+Until we have capabilities or device support in swarm....
+
+This will deploy a docker:dind container to your swarm that starts a docker container that watches for events and assigns permissions for devices mapped via volumes so you can use swarm to manage zwave2mqtt, zigbee2mqtt, maybe even GPU for Emby/Jellyfin/Plex
+
+
 # Setup with Compose - not a swarm stack
 Can't do this as a stack yet because you need a privileged container
 ```shell
-docker-compose -f alternative-compose.yml up -d
-```
-Goto: Usage
-
-# Setup with systemd
-```shell
-cp docker-event-listener.sh /usr/local/bin
-chmod 0744 /usr/local/bin docker-event-listener.sh
-
-cp docker-event-listener.service /etc/systemd/system/
-chmod 744 /etc/systemd/system/docker-event-listener.service
-systemctl daemon-reload
-systemctl start docker-event-listener.service
-systemctl enable docker-event-listener.service
+docker stack deploy -c swarm.yml devices
 ```
 
 # Usage
