@@ -1,57 +1,60 @@
-version: "3.2"
+version: "3.7"
 
 services:
   volumes:
-    image: docker
-    tty: true
-    environment:
-      - NODE_NAME={{.Node.Hostname}}
-    command: 
-      - docker
-      - run
-      - --rm
-      - --privileged
-      - --init
-      - --name
-      - devices_volume_priv
-      - -e
-      - NODE_NAME
-      - -v 
-      - /var/run/docker.sock:/var/run/docker.sock
-      - -v 
-      - /sys/fs/cgroup/devices/docker/:/docker/:Z
-      - docker
-      - /bin/ash
+    image: docker:dind
+    stop_grace_period: 60s
+    command:
+      - ash
       - -c
       - |
-        # touch /var/log/test
-        # tail -f /var/log/test
-        function log() {
-          echo "$${NODE_NAME}: $${1}"
-        }
-        log "Listening for containers that start with a volume.device label"
-        function add_perm() {
-          read DEVICE CID
-          
-          USBDEV=`readlink -f $${DEVICE}`
-          major=`stat -c '%t' $$USBDEV`
-          minor=`stat -c '%T' $$USBDEV`
-          if [[ -z $$minor || -z $$major ]]; then
-            log 'Device not found'
-            exit
-          fi
-
-          dminor=$$((0x$${minor}))
-          dmajor=$$((0x$${major}))
-          log "Setting permissions (c $$dmajor:$$dminor rwm) for $${CID} to device ($${DEVICE})"
-          echo "c $$dmajor:$$dminor rwm" > /docker/$${CID}/devices.allow
+        term_signal_handler() {
+          echo "############  Caught SIGTERM #############"
+          docker stop devices_volume_priv >/dev/null 2>&1
+          exit
         }
 
-        docker events \
-          --filter 'label=volume.device' \
-          --filter 'event=start' \
-          --format '{{index .Actor.Attributes "volume.device"}} {{.Actor.ID}}' | \
-          add_perm
+        trap 'term_signal_handler' SIGTERM
+        
+        echo "Starting event listener container"
+        docker run \
+          --rm \
+          --privileged \
+          --tty=false -i \
+          --name devices_volume_priv \
+          -v /var/run/docker.sock:/var/run/docker.sock \
+          -v /sys/fs/cgroup/devices/docker/:/docker/:Z \
+          docker sh -s <<"EOF" &
+            add_perm() {
+              read DEVICE CID
+              if [[ -z $$DEVICE ]]; then
+                echo "we did a startup I think"
+                return
+              fi
+              
+              USBDEV=`readlink -f $${DEVICE}`
+              major=`stat -c '%t' $$USBDEV`
+              minor=`stat -c '%T' $$USBDEV`
+              if [[ -z $$minor || -z $$major ]]; then
+                echo 'Device not found'
+                return
+              fi
+              dminor=$$((0x$${minor}))
+              dmajor=$$((0x$${major}))
+              echo "Setting permissions (c $$dmajor:$$dminor rwm) for $${CID} to device ($${DEVICE})"
+              echo "c $$dmajor:$$dminor rwm" > /docker/$${CID}/devices.allow
+            }
+
+            echo "Listening for startup events that have a label of 'volume.device'"
+            docker events \
+              --filter 'label=volume.device' \
+              --filter 'event=start' \
+              --format '{{index .Actor.Attributes "volume.device"}} {{.Actor.ID}}' | \
+              add_perm
+        EOF
+        while true ; do 
+          sleep 5
+        done
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock"
     deploy:
