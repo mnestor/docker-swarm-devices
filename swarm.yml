@@ -24,6 +24,7 @@ services:
           --name devices_volume_priv \
           -v /var/run/docker.sock:/var/run/docker.sock \
           -v /sys/fs/cgroup/devices/docker/:/docker/:Z \
+          -v /dev/:/real/dev/ \
           docker sh -s <<"EOF" &
             add_perm() {
               read DEVICE CID
@@ -32,7 +33,7 @@ services:
                 return
               fi
               
-              USBDEV=`readlink -f $${DEVICE}`
+              USBDEV=`readlink -f /real$${DEVICE}`
               major=`stat -c '%t' $$USBDEV`
               minor=`stat -c '%T' $$USBDEV`
               if [[ -z $$minor || -z $$major ]]; then
@@ -46,11 +47,14 @@ services:
             }
 
             echo "Listening for startup events that have a label of 'volume.device'"
-            docker events \
-              --filter 'label=volume.device' \
-              --filter 'event=start' \
-              --format '{{index .Actor.Attributes "volume.device"}} {{.Actor.ID}}' | \
-              add_perm
+            while true; do
+              docker events \
+                --filter 'label=volume.device' \
+                --filter 'event=start' \
+                --format '{{index .Actor.Attributes "volume.device"}} {{.Actor.ID}}' | \
+                add_perm
+              echo "Restarting events listener"
+            done
         EOF
         while true ; do 
           sleep 5
